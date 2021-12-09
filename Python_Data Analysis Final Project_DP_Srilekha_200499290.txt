@@ -1,0 +1,177 @@
+import pandas as pd
+import numpy as np
+import warnings
+import seaborn as sns
+
+pd.set_option('display.max_rows', None)
+pd.set_option('display.max_columns', None)
+
+warnings.filterwarnings('ignore')
+
+
+# Reduces Memory used on your computer. 
+# Helpful when your data is large it reduces the memory used 
+# so your script/notebook doesn't crash with out of memory errors
+def reduce_mem_usage(df, verbose=True):
+    numerics = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
+    start_mem = df.memory_usage().sum() / 1024**2    
+    for col in df.columns:
+        col_type = df[col].dtypes
+        if col_type in numerics:
+            c_min = df[col].min()
+            c_max = df[col].max()
+            if str(col_type)[:3] == 'int':
+                if c_min > np.iinfo(np.int8).min and c_max < np.iinfo(np.int8).max:
+                    df[col] = df[col].astype(np.int8)
+                elif c_min > np.iinfo(np.int16).min and c_max < np.iinfo(np.int16).max:
+                    df[col] = df[col].astype(np.int16)
+                elif c_min > np.iinfo(np.int32).min and c_max < np.iinfo(np.int32).max:
+                    df[col] = df[col].astype(np.int32)
+                elif c_min > np.iinfo(np.int64).min and c_max < np.iinfo(np.int64).max:
+                    df[col] = df[col].astype(np.int64)  
+            else:
+                if c_min > np.finfo(np.float16).min and c_max < np.finfo(np.float16).max:
+                    df[col] = df[col].astype(np.float16)
+                elif c_min > np.finfo(np.float32).min and c_max < np.finfo(np.float32).max:
+                    df[col] = df[col].astype(np.float32)
+                else:
+                    df[col] = df[col].astype(np.float64)    
+    end_mem = df.memory_usage().sum() / 1024**2
+    if verbose: print('Mem. usage decreased to {:5.2f} Mb ({:.1f}% reduction)'.format(end_mem, 100 * (start_mem - end_mem) / start_mem))
+    return df
+
+
+##    DATA IMPORT   ##
+
+Jobs = pd.read_csv('DataSources/DataAnalyst.csv')
+Jobs.head(20)
+
+
+##   DATASET EXPLORATION   ##
+
+# Number of records in the dataset
+print('Total Number of Records: ',len(Jobs))
+
+# Number of columns in the dataset
+print('Total Number of Columns: ',len(Jobs.columns))
+
+Jobs.columns
+
+## Data type of each column
+Jobs.dtypes
+
+# Missing Data Heat map
+JobsMissingData = Jobs.columns[:] # all the columns
+colours = ['#000099', '#ffff00'] # colours specified - yellow is missing. blue is not missing.
+sns.heatmap(Jobs[JobsMissingData].isnull(), cmap=sns.color_palette(colours));
+
+
+##   DATA CLEANING   ##
+
+# Naming and renaming columns
+Jobs.rename( columns={'Unnamed: 0':'S:No'}, inplace=True )
+Jobs.rename( columns={'Salary Estimate':'SalaryEstimate'}, inplace=True )
+Jobs.rename( columns={'Job Title':'Job_Title'}, inplace=True )
+Jobs.rename( columns={'Type of ownership':'Type of Organization'}, inplace=True )
+Jobs.head(3)
+
+# Missing value analysis
+# Change of Values
+Jobs.drop(Jobs.loc[Jobs['Revenue']== 'Unknown / Non-Applicable'].index, inplace=True)
+Jobs.drop(Jobs.loc[Jobs['Revenue']== 'Less than $1 million (USD)'].index, inplace=True)
+Jobs.drop(Jobs.loc[Jobs['Revenue']== '$10+ billion (USD)'].index, inplace=True)
+Jobs.drop(Jobs.loc[Jobs['Revenue']== '-1'].index, inplace=True)
+Jobs['Revenue'] = Jobs['Revenue'].replace(['$500 million to $1 billion (USD)'],'$500 to $1000 million (USD)')
+Jobs['Revenue'] = Jobs['Revenue'].replace(['$2 to $5 billion (USD)'],'$2000 to $5000 million (USD)')
+Jobs['Revenue'] = Jobs['Revenue'].replace(['$1 to $2 billion (USD)'],'$1000 to $2000 million (USD)')
+Jobs['Revenue'] = Jobs['Revenue'].replace(['$5 to $10 billion (USD)'],'$5000 to $10000 million (USD)')
+
+Jobs.drop(Jobs.loc[Jobs['Size']== '10000+ employees'].index, inplace=True)
+Jobs.drop(Jobs.loc[Jobs['Size']== 'Unknown'].index, inplace=True)
+Jobs.drop(Jobs.loc[Jobs['Founded']== -1].index, inplace=True)
+
+Jobs['Competitors'] = Jobs['Competitors'].replace(['-1'],'0')
+Jobs.head(30)
+
+Jobs['City_Located'], Jobs['Province'] = Jobs['Location'].str.split(',', 1).str
+
+Jobs['Salary'], Jobs['Text_to_avoid'] = Jobs['SalaryEstimate'].str.split('(', 1).str
+Jobs['MinSalary_in_1000USD'], Jobs['MaxSalary_in_1000USD'] = Jobs['Salary'].str.split('-', 1).str
+Jobs.head(5)
+
+Jobs1 = Jobs.assign(MinSalary_in_1000USD = lambda x: x['MinSalary_in_1000USD'].str.extract('(\d+)'))
+Jobs1.head(5)
+
+Jobs2 = Jobs1.assign(MaxSalary_in_1000USD = lambda x: x['MaxSalary_in_1000USD'].str.extract('(\d+)'))
+Jobs2.head(5)
+
+Jobs2['EmpSize'], Jobs2['TextToAvoid'] = Jobs2['Size'].str.split('e', 1).str
+Jobs2['Minimum_Empsize'], Jobs2['Maximum_Empsize'] = Jobs2['EmpSize'].str.split('to', 1).str
+Jobs2.head(5)
+
+Jobs2['TotalRevenue'], Jobs2['TextTobeAvoided'] = Jobs2['Revenue'].str.split('m', 1).str
+Jobs2['Minimum_Revenue_in_Million'], Jobs2['Maximum_Revenue_in_Million'] = Jobs2['TotalRevenue'].str.split('to', 1).str
+Jobs2.head(5)
+
+Jobs3 = Jobs2.assign(Minimum_Revenue_in_Million = lambda x: x['Minimum_Revenue_in_Million'].str.extract('(\d+)'))
+Jobs3.head(5)
+
+Jobs4 = Jobs3.assign(Maximum_Revenue_in_Million = lambda x: x['Maximum_Revenue_in_Million'].str.extract('(\d+)'))
+Jobs4.head(5)
+
+# Removed 3 columns (Industry, Job Description, Easy Apply) and Rearranged
+Jobs5 = Jobs4[['Company Name', 'Job_Title', 'MinSalary_in_1000USD', 'MaxSalary_in_1000USD', 'Rating', 'City_Located', 'Province', 'Headquarters', 'Minimum_Empsize', 'Maximum_Empsize', 'Founded',
+       'Type of Organization', 'Sector', 'Minimum_Revenue_in_Million', 'Maximum_Revenue_in_Million', 'Competitors']]
+Jobs5.head(10)
+
+
+# Number of records in the dataset
+print('Total Number of Records: ',len(Jobs5))
+
+# Number of columns in the dataset
+print('Total Number of Columns: ',len(Jobs5.columns))
+
+Jobs5.to_csv(r'C:\Users\karth\Downloads\Cleaned.csv')
+
+
+##   DATA ANALYSIS   ##
+
+
+# Job vacancy in %
+Jobs5.Job_Title.value_counts().plot(kind='pie', autopct='%1.0f%%',
+                                title='Different types of Jobs available', radius=2.5)
+
+
+#How much is the maximum revenue with different type of organizations ?
+table = pd.pivot_table(Jobs5,index=['Type of Organization'],values=['Maximum_Revenue_in_Million'],aggfunc=np.max)
+table
+
+
+import matplotlib.pyplot as plt
+fig = plt.figure()
+ax = fig.add_axes([2,1,2,1])
+Revenue = ['Contract', 'Educational', 'Government', 'Health', 'Nonprofit Organization', 'Private', 'Subsidiary or Business Segment']
+ownership = [500, 500, 5000, 2000, 5000, 5000, 5000]
+ax.bar(Revenue,ownership)
+plt.show()
+
+
+#Is there differences in the cities? How do we know for certain?
+table1 = pd.pivot_table(Jobs5,index=['City_Located'],values=['Rating'],aggfunc=['count'])
+table1
+
+fig = plt.figure()
+ax = fig.add_axes([1,1,1,1])
+City_Located = ['Houston', 'San Francisco', 'Chicago', 'New York', 'Charlotte']
+Distinct_count_of_Rating = [32, 47, 51, 112, 37]
+ax.bar(City_Located,Distinct_count_of_Rating)
+plt.show()
+
+# Changing the Data type of a column
+Jobs5.astype({'MinSalary_in_1000USD': 'int32'}).dtypes
+
+#What’s the break down of the company ratings?
+plt.hist(Jobs5['Rating'], bins=10, align='left', color='purple', edgecolor='black')
+
+
+
